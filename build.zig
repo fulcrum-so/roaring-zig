@@ -8,13 +8,13 @@ pub fn build(b: *std.Build) void {
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     var lib = add(b, target, optimize);
-    lib.install();
+    b.installArtifact(lib);
 
     var main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/test.zig" },
     });
     main_tests.linkLibrary(lib);
-    main_tests.addIncludePath("croaring");
+    main_tests.addIncludePath(.{ .path = "croaring" });
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -26,23 +26,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     example.linkLibrary(lib);
-    example.addIncludePath("croaring");
+    example.addIncludePath(.{ .path = "croaring" });
 
-    const run_example = example.run();
+    const run_example = b.addRunArtifact(example);
     run_example.step.dependOn(&example.step); // gotta build it first
     b.step("run-example", "Run the example").dependOn(&run_example.step);
 }
 
 /// Add Roaring Bitmaps to your build process
-pub fn add(b: *std.Build, target: CrossTarget, optimize: std.builtin.Mode) *std.build.LibExeObjStep {
-    var lib = b.addStaticLibrary(.{
+pub fn add(b: *std.Build, target: CrossTarget, optimize: std.builtin.Mode) *std.Build.Step.Compile {
+    var lib: *std.Build.Step.Compile = b.addStaticLibrary(.{
         .name = "roaring-zig",
         .root_source_file = .{ .path = "src/roaring.zig" },
         .target = target,
         .optimize = optimize,
     });
     lib.linkLibC();
-    lib.addCSourceFile("croaring/roaring.c", &[_][]const u8{""});
-    lib.addIncludePath("croaring");
+    lib.addCSourceFile(.{ .file = .{ .path = "croaring/roaring.c" }, .flags = &.{ "-fPIC", "-std=c11", "-O3", "-Wall", "-Wextra", "-pedantic", "-Wshadow" } });
+    lib.addIncludePath(.{ .path = "croaring" });
     return lib;
 }
