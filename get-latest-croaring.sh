@@ -3,13 +3,22 @@
 #  to build yourself.
 set -eou pipefail
 
-repo="/tmp/CRoaring"
+if [[ -z "${CROARING_REPO}" ]]; then
+    repo="/tmp/CRoaring"
+    git clone --depth 1 https://github.com/RoaringBitmap/CRoaring.git $repo
+else
+    repo="${CROARING_REPO}"
+fi
 
-git clone --depth 1 https://github.com/RoaringBitmap/CRoaring.git $repo
-rm -rf $repo/.git
+mv $repo/.git $repo/.git.backup
 cd croaring
 $repo/amalgamation.sh
 
 # clean up
 cd -
-rm -rf $repo
+mv $repo/.git.backup $repo/.git
+rm croaring/amalgamation_demo.c croaring/amalgamation_demo.cpp croaring/roaring.hh
+
+if [[ -z "${CROARING_REPO}" ]]; then
+    rm -rf $repo
+fi
