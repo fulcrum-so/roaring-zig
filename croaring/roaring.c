@@ -1,5 +1,5 @@
 // !!! DO NOT EDIT - THIS IS AN AUTO-GENERATED FILE !!!
-// Created by amalgamation.sh on 2023-09-12T17:38:44Z
+// Created by amalgamation.sh on 2023-09-27T20:30:56Z
 
 /*
  * The CRoaring project is under a dual license (Apache/MIT).
@@ -10592,11 +10592,7 @@ void array_container_grow(array_container_t *container, int32_t min,
         container->array = (uint16_t *)roaring_malloc(new_capacity * sizeof(uint16_t));
     }
 
-    //  handle the case where realloc fails
-    if (container->array == NULL) {
-      fprintf(stderr, "could not allocate memory\n");
-    }
-    assert(container->array != NULL);
+    // if realloc fails, we have container->array == NULL.
 }
 
 /* Copy one container into another. We assume that they are distinct. */
@@ -14565,37 +14561,11 @@ bool array_array_container_inplace_union(
           return false;  // not a bitset
         } else {
           memmove(src_1->array + src_2->cardinality, src_1->array, src_1->cardinality * sizeof(uint16_t));
-          /*
-            Next line is safe:
-
-            We just need to focus on the reading and writing performed on array1. In `union_vector16`, both vectorized and scalar code still obey the basic rule: read from two inputs, do the union, and then write the output.
-
-            Let's say the length(cardinality) of input2 is L2:
-            ```
-                |<-  L2  ->|
-            array1: [output--- |input 1---|---]
-            array2: [input 2---]
-            ```
-            Let's define 3 __m128i pointers, `pos1` starts from `input1`, `pos2` starts from `input2`, these 2 point at the next byte to read, `out` starts from `output`, pointing at the next byte to overwrite.
-            ```
-            array1: [output--- |input 1---|---]
-                        ^          ^
-                    out        pos1
-            array2: [input 2---]
-                        ^
-                        pos2
-            ```
-            The union output always contains less or equal number of elements than all inputs added, so we have:
-            ```
-            out <= pos1 + pos2
-            ```
-            therefore:
-            ```
-            out <= pos1 + L2
-            ```
-            which means you will not overwrite data beyond pos1, so the data haven't read is safe, and we don't care the data already read.
-          */
-          src_1->cardinality = (int32_t)fast_union_uint16(src_1->array + src_2->cardinality, src_1->cardinality,
+          // In theory, we could use fast_union_uint16, but it is unsafe. It fails
+          // with Intel compilers in particular.
+          // https://github.com/RoaringBitmap/CRoaring/pull/452
+          // See report https://github.com/RoaringBitmap/CRoaring/issues/476
+          src_1->cardinality = (int32_t)union_uint16(src_1->array + src_2->cardinality, src_1->cardinality,
                                   src_2->array, src_2->cardinality, src_1->array);
           return false; // not a bitset
         }
@@ -15348,11 +15318,7 @@ void run_container_grow(run_container_t *run, int32_t min, bool copy) {
         }
         run->runs = (rle16_t *)roaring_malloc(run->capacity * sizeof(rle16_t));
     }
-    // handle the case where realloc fails
-    if (run->runs == NULL) {
-      fprintf(stderr, "could not allocate memory\n");
-    }
-    assert(run->runs != NULL);
+    // We may have run->runs == NULL.
 }
 
 /* copy one container into another */
@@ -15854,7 +15820,10 @@ bool run_container_validate(const run_container_t *run, const char **reason) {
             *reason = "run start + length overflow";
             return false;
         }
-
+        if (end > (1<<16)) {
+            *reason = "run start + length too large";
+            return false;
+        }
         if (start < last_end) {
             *reason = "run start less than last end";
             return false;
@@ -18045,7 +18014,10 @@ roaring_bitmap_t *roaring_bitmap_portable_deserialize_safe(const char *buf, size
     }
     size_t bytesread;
     bool is_ok = ra_portable_deserialize(&ans->high_low_container, buf, maxbytes, &bytesread);
-    if(is_ok) assert(bytesread <= maxbytes);
+    if (!is_ok) {
+        roaring_free(ans);
+        return NULL;
+    }
     roaring_bitmap_set_copy_on_write(ans, false);
     if (!is_ok) {
         roaring_free(ans);
@@ -20714,7 +20686,7 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
         buf += sizeof(uint32_t);
     }
     if (size > (1<<16)) {
-       return 0; // logically impossible
+       return 0;
     }
     char *bitmapOfRunContainers = NULL;
     bool hasrun = (cookie & 0xFFFF) == SERIAL_COOKIE;
@@ -20773,15 +20745,15 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
     return bytestotal;
 }
 
-// this function populates answer from the content of buf (reading up to maxbytes bytes).
+// This function populates answer from the content of buf (reading up to maxbytes bytes).
 // The function returns false if a properly serialized bitmap cannot be found.
-// if it returns true, readbytes is populated by how many bytes were read, we have that *readbytes <= maxbytes.
+// If it returns true, readbytes is populated by how many bytes were read, we have that *readbytes <= maxbytes.
 //
 // This function is endian-sensitive.
 bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const size_t maxbytes, size_t * readbytes) {
     *readbytes = sizeof(int32_t);// for cookie
     if(*readbytes > maxbytes) {
-      fprintf(stderr, "Ran out of bytes while reading first 4 bytes.\n");
+      // Ran out of bytes while reading first 4 bytes.
       return false;
     }
     uint32_t cookie;
@@ -20789,8 +20761,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
     buf += sizeof(uint32_t);
     if ((cookie & 0xFFFF) != SERIAL_COOKIE &&
         cookie != SERIAL_COOKIE_NO_RUNCONTAINER) {
-        fprintf(stderr, "I failed to find one of the right cookies. Found %" PRIu32 "\n",
-                cookie);
+        // "I failed to find one of the right cookies. 
         return false;
     }
     int32_t size;
@@ -20800,21 +20771,19 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
     else {
         *readbytes += sizeof(int32_t);
         if(*readbytes > maxbytes) {
-          fprintf(stderr, "Ran out of bytes while reading second part of the cookie.\n");
+          // Ran out of bytes while reading second part of the cookie.
           return false;
         }
         memcpy(&size, buf, sizeof(int32_t));
         buf += sizeof(uint32_t);
     }
     if (size < 0) {
-       fprintf(stderr, "You cannot have a negative number of containers, the data must be corrupted: %" PRId32 "\n",
-                size);
-       return false; // logically impossible
+       // You cannot have a negative number of containers, the data must be corrupted.
+       return false;
     }
     if (size > (1<<16)) {
-       fprintf(stderr, "You cannot have so many containers, the data must be corrupted: %" PRId32 "\n",
-                size);
-       return false; // logically impossible
+       // You cannot have so many containers, the data must be corrupted.
+       return false;
     }
     const char *bitmapOfRunContainers = NULL;
     bool hasrun = (cookie & 0xFFFF) == SERIAL_COOKIE;
@@ -20822,7 +20791,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
         int32_t s = (size + 7) / 8;
         *readbytes += s;
         if(*readbytes > maxbytes) {// data is corrupted?
-          fprintf(stderr, "Ran out of bytes while reading run bitmap.\n");
+          // Ran out of bytes while reading run bitmap.
           return false;
         }
         bitmapOfRunContainers = buf;
@@ -20832,14 +20801,14 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
 
     *readbytes += size * 2 * sizeof(uint16_t);
     if(*readbytes > maxbytes) {
-      fprintf(stderr, "Ran out of bytes while reading key-cardinality array.\n");
+      // Ran out of bytes while reading key-cardinality array.
       return false;
     }
     buf += size * 2 * sizeof(uint16_t);
 
     bool is_ok = ra_init_with_capacity(answer, size);
     if (!is_ok) {
-        fprintf(stderr, "Failed to allocate memory for roaring array. Bailing out.\n");
+        // Failed to allocate memory for roaring array. Bailing out.
         return false;
     }
 
@@ -20851,7 +20820,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
     if ((!hasrun) || (size >= NO_OFFSET_THRESHOLD)) {
         *readbytes += size * 4;
         if(*readbytes > maxbytes) {// data is corrupted?
-          fprintf(stderr, "Ran out of bytes while reading offsets.\n");
+          // Ran out of bytes while reading offsets.
           ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
           return false;
         }
@@ -20877,14 +20846,14 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
             size_t containersize = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
             *readbytes += containersize;
             if(*readbytes > maxbytes) {
-              fprintf(stderr, "Running out of bytes while reading a bitset container.\n");
+              // Running out of bytes while reading a bitset container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
             // it is now safe to read
             bitset_container_t *c = bitset_container_create();
             if(c == NULL) {// memory allocation failure
-              fprintf(stderr, "Failed to allocate memory for a bitset container.\n");
+              // Failed to allocate memory for a bitset container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
@@ -20896,7 +20865,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
             // we check that the read is allowed
             *readbytes += sizeof(uint16_t);
             if(*readbytes > maxbytes) {
-              fprintf(stderr, "Running out of bytes while reading a run container (header).\n");
+              // Running out of bytes while reading a run container (header).
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
@@ -20905,7 +20874,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
             size_t containersize = n_runs * sizeof(rle16_t);
             *readbytes += containersize;
             if(*readbytes > maxbytes) {// data is corrupted?
-              fprintf(stderr, "Running out of bytes while reading a run container.\n");
+              // Running out of bytes while reading a run container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
@@ -20913,7 +20882,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
 
             run_container_t *c = run_container_create();
             if(c == NULL) {// memory allocation failure
-              fprintf(stderr, "Failed to allocate memory for a run container.\n");
+              // Failed to allocate memory for a run container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
@@ -20926,7 +20895,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
             size_t containersize = thiscard * sizeof(uint16_t);
             *readbytes += containersize;
             if(*readbytes > maxbytes) {// data is corrupted?
-              fprintf(stderr, "Running out of bytes while reading an array container.\n");
+              // Running out of bytes while reading an array container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
@@ -20934,7 +20903,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf, const siz
             array_container_t *c =
                 array_container_create_given_capacity(thiscard);
             if(c == NULL) {// memory allocation failure
-              fprintf(stderr, "Failed to allocate memory for an array container.\n");
+              // Failed to allocate memory for an array container.
               ra_clear(answer);// we need to clear the containers already allocated, and the roaring array
               return false;
             }
