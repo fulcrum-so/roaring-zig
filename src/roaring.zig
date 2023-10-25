@@ -737,16 +737,16 @@ fn setAllocation(mem: []u8) ?*anyopaque {
         allocations.put(ally, ptr, mem.len) catch return null;
         return ptr;
     }
-    @panic("global_roaring_allocator is not set");
+    std.debug.panic("global_roaring_allocator is not set", .{});
 }
 
 fn getAllocation(ptr: ?*anyopaque) []u8 {
-    var len = allocations.get(ptr) orelse @panic("getAllocation cannot find pointer");
+    var len = allocations.get(ptr) orelse std.debug.panic("getAllocation cannot find pointer", .{});
     return @as([*]u8, @ptrCast(ptr))[0..len];
 }
 
 fn getRemoveAllocation(ptr: ?*anyopaque) []u8 {
-    var kv = allocations.fetchRemove(ptr) orelse @panic("removeAllocationn cannot find pointer");
+    var kv = allocations.fetchRemove(ptr) orelse std.debug.panic("removeAllocationn cannot find pointer", .{});
     return @as([*c]u8, @ptrCast(ptr))[0..kv.value];
 }
 
@@ -790,7 +790,7 @@ export fn roaringFree(ptr: ?*anyopaque) void {
 
     if (global_roaring_allocator) |ally| {
         ally.free(getRemoveAllocation(ptr));
-    } else @panic("roaringFree was called but global_roaring_allocator is not set");
+    } else std.debug.panic("roaringFree was called but global_roaring_allocator is not set", .{});
 }
 
 export fn roaringAlignedMalloc(ptr_align: usize, size: usize) ?*anyopaque {
@@ -803,7 +803,7 @@ export fn roaringAlignedMalloc(ptr_align: usize, size: usize) ?*anyopaque {
             16 => ally.alignedAlloc(u8, 16, size),
             // This appears to be the only value that is actually used in roaring.c
             32 => ally.alignedAlloc(u8, 32, size),
-            else => @panic("Unexpected alignment size"),
+            else => std.debug.panic("Unexpected alignment size", .{}),
         } catch return null);
     }
     return null;
