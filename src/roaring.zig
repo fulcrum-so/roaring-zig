@@ -741,12 +741,12 @@ fn setAllocation(mem: []u8) ?*anyopaque {
 }
 
 fn getAllocation(ptr: ?*anyopaque) []u8 {
-    var len = allocations.get(ptr) orelse @panic("getAllocation cannot find pointer");
+    const len = allocations.get(ptr) orelse @panic("getAllocation cannot find pointer");
     return @as([*]u8, @ptrCast(ptr))[0..len];
 }
 
 fn getRemoveAllocation(ptr: ?*anyopaque) []u8 {
-    var kv = allocations.fetchRemove(ptr) orelse @panic("removeAllocationn cannot find pointer");
+    const kv = allocations.fetchRemove(ptr) orelse @panic("removeAllocationn cannot find pointer");
     return @as([*c]u8, @ptrCast(ptr))[0..kv.value];
 }
 
