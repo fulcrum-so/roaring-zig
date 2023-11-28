@@ -250,6 +250,16 @@ pub const Bitmap = extern struct {
         return checkNewBitmap(c.roaring_bitmap_copy(conv(self)));
     }
 
+    pub fn toBitset(self: *const Bitmap) RoaringError!*Bitset {
+        var dest = try Bitset.create();
+        errdefer dest.free();
+        if (!c.roaring_bitmap_to_bitset(conv(self), conv(dest))) {
+            dest.free();
+            return RoaringError.allocation_failed;
+        }
+        return dest;
+    }
+
     /// Copies a bitmap from src to dest. It is assumed that the pointer dest
     /// is to an already allocated bitmap. The content of the dest bitmap is
     /// freed/deleted.
