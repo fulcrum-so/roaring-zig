@@ -51,7 +51,70 @@ comptime {
     if (@sizeOf(Bitmap) != @sizeOf(c.roaring_bitmap_t)) {
         @compileError("Bitmap and roaring_bitmap_t are not the same size");
     }
+    if (@sizeOf(Bitset) != @sizeOf(c.bitset_t)) {
+        @compileError("Bitset and bitset_t are not the same size");
+    }
 }
+
+// This is a plain bitset, analogous to std.bit_set.DynamicBitSet
+pub const Bitset = extern struct {
+    array: [*c]u64,
+    arraysize: usize,
+    capacity: usize,
+
+    // Analogous to Bitmap.conv(), but for Bitsets
+    pub fn conv(bitset: anytype) convType(@TypeOf(bitset)) {
+        return @ptrCast(bitset);
+    }
+
+    // Support function for conversion.  Given an input type, produces the
+    // appropriate target type.
+    fn convType(comptime T: type) type {
+        // We'll just grab the type info, swap out the child field and be done
+        // This way const/non-const are handled automatically
+        var info = @typeInfo(T);
+        info.Pointer.child = switch (info.Pointer.child) {
+            c.bitset_t => Bitset,
+            Bitset => c.bitset_t,
+            else => unreachable, // don't call this with anything else
+        };
+        return @Type(info); // turn the modified TypeInfo into a type
+    }
+
+    //============================= Create/free =============================//
+
+    // Helper function to ensure null bitsets turn into errors
+    fn checkNewBitset(bitset: ?*c.bitset_t) RoaringError!*Bitset {
+        if (bitset) |b| {
+            return conv(b);
+        } else {
+            return RoaringError.allocation_failed;
+        }
+    }
+
+    /// Dynamically allocates a new bitmap (initially empty).
+    /// Returns an error if the allocation fails.
+    /// Client is responsible for calling `free()`.
+    pub fn create() RoaringError!*Bitset {
+        return checkNewBitset(c.bitset_create());
+    }
+
+    pub fn createWithCapacity(capacity: usize) RoaringError!*Bitset {
+        return checkNewBitset(c.bitset_create_with_capacity(capacity));
+    }
+
+    pub fn free(self: *Bitset) void {
+        c.bitset_free(conv(self));
+    }
+
+    pub fn asBitSlice(self: *const Bitset) std.PackedIntSlice(u1) {
+        return std.PackedIntSlice(u1){
+            .bytes = @ptrCast(self.array),
+            .len = self.arraysize * @bitSizeOf(u64),
+            .bit_offset = 0,
+        };
+    }
+};
 
 /// This struct reimplements CRoaring's roaring_bitmap_t type
 ///  and can be @ptrCast to and from it.
@@ -77,7 +140,7 @@ pub const Bitmap = extern struct {
     }
 
     // Support function for conversion.  Given an input type, produces the
-    //  appropriate target type.
+    // appropriate target type.
     fn convType(comptime T: type) type {
         // We'll just grab the type info, swap out the child field and be done
         // This way const/non-const are handled automatically
