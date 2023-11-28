@@ -144,10 +144,10 @@ pub const Bitmap = extern struct {
 
     /// Create a Bitmap from a tuple or array of u32s
     pub fn of(tup: anytype) RoaringError!*Bitmap {
-        const Tup = @TypeOf(tup);
-        const isArray = @typeInfo(Tup) == .Array;
-        if (comptime !std.meta.trait.isTuple(Tup) and !isArray) {
-            @compileError("Bitmap.of takes a tuple or array of u32, got " ++ @typeName(Tup));
+        const T = @TypeOf(tup);
+        const tInfo = @typeInfo(T);
+        if (comptime tInfo != .Tuple and tInfo != .Array) {
+            @compileError("Bitmap.of takes a tuple or array of u32, got " ++ @typeName(T));
         }
 
         // Little trick to convert a tuple or array to a slice
@@ -699,6 +699,13 @@ pub fn allocForFrozen(allocator: std.mem.Allocator, len: usize) ![]align(32) u8 
 ///  API, you should generally only invoke this once.  Call `freeAllocator` to cleanup
 ///  related bookkeeping.
 pub fn setAllocator(allocator: std.mem.Allocator) void {
+    if (global_roaring_allocator) |ally| {
+        if (std.mem.eql(std.mem.Allocator, ally, allocator)) {
+            return;
+        }
+        std.debug.panic("called roaring.setAllocator() with a new allocator, already set");
+    }
+
     global_roaring_allocator = allocator;
     c.roaring_init_memory_hook(.{
         .malloc = roaringMalloc,
@@ -716,6 +723,7 @@ pub fn setAllocator(allocator: std.mem.Allocator) void {
 pub fn freeAllocator() void {
     if (global_roaring_allocator) |ally| {
         allocations.deinit(ally);
+        global_roaring_allocator = null;
     }
 }
 
