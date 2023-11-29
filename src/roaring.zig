@@ -92,27 +92,80 @@ pub const Bitset = extern struct {
         }
     }
 
-    /// Dynamically allocates a new bitmap (initially empty).
+    /// Dynamically allocates a new bitset (initially empty).
     /// Returns an error if the allocation fails.
     /// Client is responsible for calling `free()`.
     pub fn create() RoaringError!*Bitset {
         return checkNewBitset(c.bitset_create());
     }
 
+    /// Dynamically allocates a new bitset with at least `capacity` bits
+    /// (Note: Actually allocates 64 bit words)
+    /// Client is responsible for calling `free()`.
     pub fn createWithCapacity(capacity: usize) RoaringError!*Bitset {
         return checkNewBitset(c.bitset_create_with_capacity(capacity));
     }
 
+    /// Free the bitset and its allocated backing array.
     pub fn free(self: *Bitset) void {
         c.bitset_free(conv(self));
     }
 
+    /// Exposes a view of the bytes of this Bitset as a PackedIntSlice.
     pub fn asBitSlice(self: *const Bitset) std.PackedIntSlice(u1) {
         return std.PackedIntSlice(u1){
             .bytes = @ptrCast(self.array),
             .len = self.arraysize * @bitSizeOf(u64),
             .bit_offset = 0,
         };
+    }
+
+    /// Set all bits to zero.
+    pub fn clear(self: *Bitset) void {
+        return c.bitset_clear(conv(self));
+    }
+
+    /// Set all bits to one.
+    pub fn fill(self: *Bitset) void {
+        return c.bitset_fill(conv(self));
+    }
+
+    /// Get the value of the bit at `index`.
+    pub fn get(self: *const Bitset, index: usize) bool {
+        return c.bitset_get(conv(self), index);
+    }
+
+    /// Grow the bitset if necessary so that it can support at least `newCapacity` elements.
+    pub fn ensureCapacity(self: *Bitset, newCapacity: usize) RoaringError!void {
+        const newArraySize = try std.math.divCeil(usize, newCapacity, 64);
+        const success = c.bitset_grow(conv(self), newArraySize);
+        if (!success) {
+            return RoaringError.allocation_failed;
+        }
+    }
+
+    /// Set the bit at `index`. Attempts to resize the bitset if necessary.
+    pub fn set(self: *Bitset, i: usize) RoaringError!void {
+        try self.ensureCapacity(i + 1);
+        c.bitset_set(conv(self), i);
+    }
+
+    /// Set the bit at `index` to the specified value. Attempts to resize the bitset if necessary.
+    pub fn setValue(self: *Bitset, i: usize, val: bool) RoaringError!void {
+        try self.ensureCapacity(i + 1);
+        c.bitset_set_to_value(conv(self), i, val);
+    }
+
+    pub fn count(self: *const Bitset) usize {
+        return c.bitset_count(conv(self));
+    }
+
+    pub fn minimum(self: *const Bitset) usize {
+        return c.bitset_minimum(conv(self));
+    }
+
+    pub fn maximum(self: *const Bitset) usize {
+        return c.bitset_maximum(conv(self));
     }
 };
 
