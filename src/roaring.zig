@@ -136,10 +136,14 @@ pub const Bitset = extern struct {
     }
 
     /// Grow the bitset if necessary so that it can support at least `newCapacity` elements.
-    pub fn ensureCapacity(self: *Bitset, newCapacity: usize) RoaringError!void {
-        const newArraySize = try std.math.divCeil(usize, newCapacity, 64);
-        const success = c.bitset_grow(conv(self), newArraySize);
-        if (!success) {
+    pub fn ensureCapacity(self: *Bitset, minBits: usize) RoaringError!void {
+        const minArraySize = try std.math.divCeil(usize, minBits, 64);
+        if (minArraySize <= self.arraysize) {
+            return;
+        }
+
+        const success = c.bitset_grow(conv(self), minArraySize);
+        if (!success and self.arraysize < minArraySize) {
             return RoaringError.allocation_failed;
         }
     }
@@ -821,6 +825,9 @@ pub fn allocForFrozen(allocator: std.mem.Allocator, len: usize) ![]align(32) u8 
         len);
 }
 
+/// Roaring only supports a single, global allocator
+var global_roaring_allocator: ?std.mem.Allocator = null;
+
 /// Sets the global Roaring memory allocator.  Because of limitations in the CRoaring
 ///  API, you should generally only invoke this once.  Call `freeAllocator` to cleanup
 ///  related bookkeeping.
@@ -852,9 +859,6 @@ pub fn freeAllocator() void {
         global_roaring_allocator = null;
     }
 }
-
-/// Roaring only supports a single, global allocator
-var global_roaring_allocator: ?std.mem.Allocator = null;
 
 // The roaring_resize function uses pointers instead of slices, making functions
 //  like `realloc` tricky as the Allocator interface expects slices.  This means
@@ -933,12 +937,58 @@ export fn roaringAlignedMalloc(ptr_align: usize, size: usize) ?*anyopaque {
         // Allocator's alignment parameter has to be comptime known, so we
         //  have to do this somewhat awkward transform:
         switch (ptr_align) {
-            8 => ally.alignedAlloc(u8, 8, size),
-            16 => ally.alignedAlloc(u8, 16, size),
-            // This appears to be the only value that is actually used in roaring.c
-            32 => ally.alignedAlloc(u8, 32, size),
+            inline 8, 16, 32, 64, 128 => |alignment| ally.alignedAlloc(u8, alignment, size),
             else => @panic("Unexpected alignment size"),
         } catch return null);
     }
     return null;
 }
+
+pub const roaring_free_allocator = std.mem.Allocator{
+    .ptr = undefined,
+    .vtable = &roaring_allocator_vtable,
+};
+const roaring_allocator_vtable = std.mem.Allocator.VTable{
+    .alloc = FreeOnlyRoaringAllocator.alloc,
+    .resize = FreeOnlyRoaringAllocator.resize,
+    .free = FreeOnlyRoaringAllocator.free,
+};
+
+const FreeOnlyRoaringAllocator = struct {
+    fn alloc(
+        _: *anyopaque,
+        len: usize,
+        log2_ptr_align: u8,
+        ret_addr: usize,
+    ) ?[*]u8 {
+        _ = len;
+        _ = log2_ptr_align;
+        _ = ret_addr;
+        std.debug.panic("RawRoaringAllocator is only for freeing memory allocated internally by CRoaring");
+    }
+
+    fn resize(
+        _: *anyopaque,
+        buf: []u8,
+        log2_old_align: u8,
+        new_len: usize,
+        ret_addr: usize,
+    ) bool {
+        _ = buf;
+        _ = new_len;
+        _ = log2_old_align;
+        _ = ret_addr;
+        std.debug.panic("RawRoaringAllocator is only for freeing memory allocated internally by CRoaring");
+    }
+
+    fn free(
+        _: *anyopaque,
+        buf: []u8,
+        log2_old_align: u8,
+        ret_addr: usize,
+    ) void {
+        _ = log2_old_align;
+        _ = ret_addr;
+        c.roaring_free(buf.ptr);
+    }
+};
