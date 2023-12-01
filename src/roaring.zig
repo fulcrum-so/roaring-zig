@@ -56,6 +56,27 @@ comptime {
     }
 }
 
+//=========================== Type conversions ===========================//
+/// Performs conversions:
+///  * *roaring_bitmap_t => *Bitmap
+///  * *const roaring_bitmap_t => *const Bitmap
+///  * *Bitmap => *roaring_bitmap_t
+///  * *const Bitmap => *const roaring_bitmap_t
+///  * *bitset_t => *Bitset
+///  * *const bitset_t => *const Bitmap
+///  * *Bitset => *bitset_t
+///  * *const Bitset => *const bitset_t
+/// This should be a pure type-system operation and not produce any
+///  runtime instructions.
+/// You can use this function if e.g., you get a raw *roaring_bitmap_t from
+///  somewhere and want to "convert" it into a *Bitmap. Or vice-versa.
+/// Important: this is simply casting the pointer, not producing any kind
+///  of copy, make sure you own the memory and know what other pointers
+///  to the same data are out there.
+pub fn conv(bitmap: anytype) convType(@TypeOf(bitmap)) {
+    return @ptrCast(bitmap);
+}
+
 // Support function for conversion.  Given an input type, produces the
 // appropriate target type.
 fn convType(comptime T: type) type {
@@ -78,11 +99,6 @@ pub const Bitset = extern struct {
     array: [*c]u64,
     arraysize: usize,
     capacity: usize,
-
-    // Analogous to Bitmap.conv(), but for Bitsets
-    pub fn conv(bitset: anytype) convType(@TypeOf(bitset)) {
-        return @ptrCast(bitset);
-    }
 
     //============================= Create/free =============================//
 
@@ -181,23 +197,6 @@ pub const Bitset = extern struct {
 /// (almost) all methods from the roaring_bitmap_t type should be available here.
 pub const Bitmap = extern struct {
     high_low_container: c.roaring_array_t,
-
-    //=========================== Type conversions ===========================//
-    /// Performs conversions:
-    ///  * *roaring_bitmap_t => *Bitmap
-    ///  * *const roaring_bitmap_t => *const Bitmap
-    ///  * *Bitmap => *roaring_bitmap_t
-    ///  * *const Bitmap => *const roaring_bitmap_t
-    /// This should be a pure type-system operation and not produce any
-    ///  runtime instructions.
-    /// You can use this function if you get a raw *roaring_bitmap_t from
-    ///  somewhere and want to "convert" it into a *Bitmap. Or vice-versa.
-    /// Important: this is simply casting the pointer, not producing any kind
-    ///  of copy, make sure you own the memory and know what other pointers
-    ///  to the same data are out there.
-    pub fn conv(bitmap: anytype) convType(@TypeOf(bitmap)) {
-        return @ptrCast(bitmap);
-    }
 
     //============================= Create/free =============================//
 
@@ -299,10 +298,10 @@ pub const Bitmap = extern struct {
     }
 
     pub fn copyToBitset(self: *const Bitmap, dest: *Bitset) RoaringError!void {
-        if (!c.roaring_bitmap_to_bitset(conv(self), Bitset.conv(dest))) {
+        const success = c.roaring_bitmap_to_bitset(conv(self), conv(dest));
+        if (!success) {
             return RoaringError.allocation_failed;
         }
-        return dest;
     }
 
     /// Copies a bitmap from src to dest. It is assumed that the pointer dest
@@ -999,7 +998,7 @@ const AlignedRoaringAllocator = struct {
         ret_addr: usize,
     ) ?[*]u8 {
         _ = ret_addr;
-        return c.roaring_aligned_malloc(log2_ptr_align, len);
+        return @ptrCast(c.roaring_aligned_malloc(log2_ptr_align, len));
     }
 
     fn resize(
