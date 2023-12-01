@@ -114,7 +114,7 @@ pub const Bitset = extern struct {
     /// Exposes a view of the bytes of this Bitset as a PackedIntSlice.
     pub fn asBitSlice(self: *const Bitset) std.PackedIntSlice(u1) {
         return std.PackedIntSlice(u1){
-            .bytes = @ptrCast(self.array),
+            .bytes = std.mem.sliceAsBytes(self.array[0..self.arraysize]),
             .len = self.arraysize * @bitSizeOf(u64),
             .bit_offset = 0,
         };
