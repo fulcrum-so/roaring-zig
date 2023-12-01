@@ -56,7 +56,24 @@ comptime {
     }
 }
 
-// This is a plain bitset, analogous to std.bit_set.DynamicBitSet
+// Support function for conversion.  Given an input type, produces the
+// appropriate target type.
+fn convType(comptime T: type) type {
+    // We'll just grab the type info, swap out the child field and be done
+    // This way const/non-const are handled automatically
+    var info = @typeInfo(T);
+    info.Pointer.child = switch (info.Pointer.child) {
+        c.roaring_bitmap_t => Bitmap,
+        Bitmap => c.roaring_bitmap_t,
+        c.bitset_t => Bitset,
+        Bitset => c.bitset_t,
+        else => @compileError("unexpected type " ++ @typeName(T)), // don't call this with anything else
+    };
+    return @Type(info); // turn the modified TypeInfo into a type
+}
+
+/// This is a plain bitset, analogous to std.bit_set.DynamicBitSet.
+/// This struct reimplements CRoaring's roaring_bitmap_t type and can be @ptrCast to and from it.
 pub const Bitset = extern struct {
     array: [*c]u64,
     arraysize: usize,
@@ -65,20 +82,6 @@ pub const Bitset = extern struct {
     // Analogous to Bitmap.conv(), but for Bitsets
     pub fn conv(bitset: anytype) convType(@TypeOf(bitset)) {
         return @ptrCast(bitset);
-    }
-
-    // Support function for conversion.  Given an input type, produces the
-    // appropriate target type.
-    fn convType(comptime T: type) type {
-        // We'll just grab the type info, swap out the child field and be done
-        // This way const/non-const are handled automatically
-        var info = @typeInfo(T);
-        info.Pointer.child = switch (info.Pointer.child) {
-            c.bitset_t => Bitset,
-            Bitset => c.bitset_t,
-            else => unreachable, // don't call this with anything else
-        };
-        return @Type(info); // turn the modified TypeInfo into a type
     }
 
     //============================= Create/free =============================//
@@ -196,20 +199,6 @@ pub const Bitmap = extern struct {
         return @ptrCast(bitmap);
     }
 
-    // Support function for conversion.  Given an input type, produces the
-    // appropriate target type.
-    fn convType(comptime T: type) type {
-        // We'll just grab the type info, swap out the child field and be done
-        // This way const/non-const are handled automatically
-        var info = @typeInfo(T);
-        info.Pointer.child = switch (info.Pointer.child) {
-            c.roaring_bitmap_t => Bitmap,
-            Bitmap => c.roaring_bitmap_t,
-            else => @compileError("unexpected type " ++ @typeName(T)), // don't call this with anything else
-        };
-        return @Type(info); // turn the modified TypeInfo into a type
-    }
-
     //============================= Create/free =============================//
 
     // Helper function to ensure null bitmaps turn into errors
@@ -310,7 +299,7 @@ pub const Bitmap = extern struct {
     }
 
     pub fn copyToBitset(self: *const Bitmap, dest: *Bitset) RoaringError!void {
-        if (!c.roaring_bitmap_to_bitset(conv(self), conv(dest))) {
+        if (!c.roaring_bitmap_to_bitset(conv(self), Bitset.conv(dest))) {
             return RoaringError.allocation_failed;
         }
         return dest;
