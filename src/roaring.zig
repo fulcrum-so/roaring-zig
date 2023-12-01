@@ -265,8 +265,10 @@ pub const Bitmap = extern struct {
     /// Create a Bitmap from a tuple or array of u32s
     pub fn of(tup: anytype) RoaringError!*Bitmap {
         const T = @TypeOf(tup);
-        const tInfo = @typeInfo(T);
-        if (comptime tInfo != .Tuple and tInfo != .Array) {
+        const tpInfo = @typeInfo(T);
+        const isTuple = tpInfo == .Struct and tpInfo.Struct.is_tuple;
+        const isArray = tpInfo == .Array;
+        if (comptime !isTuple and !isArray) {
             @compileError("Bitmap.of takes a tuple or array of u32, got " ++ @typeName(T));
         }
 
@@ -451,14 +453,14 @@ pub const Bitmap = extern struct {
     }
 
     /// Performs a logical OR of all `bitmaps`, returning a new bitmap
-    pub fn _orMany(bitmaps: []*const Bitmap) RoaringError!*Bitmap {
-        return checkNewBitmap(c.roaring_bitmap_or_many(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @ptrCast(bitmaps.ptr))));
+    pub fn _orMany(bitmaps: []const *const Bitmap) RoaringError!*Bitmap {
+        return checkNewBitmap(c.roaring_bitmap_or_many(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @constCast(@ptrCast(bitmaps.ptr)))));
     }
 
     /// Compute the union of `bitmaps` using a heap. This can sometimes be
     ///  faster than `_orMany()` which uses a naive algorithm.
-    pub fn _orManyHeap(bitmaps: []*const Bitmap) RoaringError!*Bitmap {
-        return checkNewBitmap(c.roaring_bitmap_or_many_heap(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @ptrCast(bitmaps.ptr))));
+    pub fn _orManyHeap(bitmaps: []const *const Bitmap) RoaringError!*Bitmap {
+        return checkNewBitmap(c.roaring_bitmap_or_many_heap(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @constCast(@ptrCast(bitmaps.ptr)))));
     }
 
     /// Returns the number of values in the result of ORing `a` and `b`
@@ -482,8 +484,8 @@ pub const Bitmap = extern struct {
     }
 
     ///
-    pub fn _xorMany(bitmaps: []*const Bitmap) RoaringError!*Bitmap {
-        return checkNewBitmap(c.roaring_bitmap_xor_many(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @ptrCast(bitmaps.ptr))));
+    pub fn _xorMany(bitmaps: []const *const Bitmap) RoaringError!*Bitmap {
+        return checkNewBitmap(c.roaring_bitmap_xor_many(@as(u32, @intCast(bitmaps.len)), @as([*c][*c]const c.roaring_bitmap_t, @constCast(@ptrCast(bitmaps.ptr)))));
     }
 
     ///
@@ -830,10 +832,10 @@ var global_roaring_allocator: ?std.mem.Allocator = null;
 ///  related bookkeeping.
 pub fn setAllocator(allocator: std.mem.Allocator) void {
     if (global_roaring_allocator) |ally| {
-        if (std.mem.eql(std.mem.Allocator, ally, allocator)) {
+        if (&ally == &allocator) {
             return;
         }
-        std.debug.panic("called roaring.setAllocator() with a new allocator, already set");
+        std.debug.panic("called roaring.setAllocator() with a new allocator, already set", .{});
     }
 
     global_roaring_allocator = allocator;

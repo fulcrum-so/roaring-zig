@@ -230,14 +230,14 @@ test "catch 'em all" {
 
     (try a._or(b)).free();
     a._orInPlace(b);
-    (try Bitmap._orMany(.{ b, c, d })).free();
-    (try Bitmap._orManyHeap(.{ b, c, d })).free();
+    (try Bitmap._orMany(&.{ b, c, d })).free();
+    (try Bitmap._orManyHeap(&.{ b, c, d })).free();
     _ = a._orCardinality(b);
 
     (try a._xor(b)).free();
     a._xorInPlace(b);
     _ = a._xorCardinality(b);
-    (try Bitmap._xorMany(.{ b, c, d })).free();
+    (try Bitmap._xorMany(&.{ b, c, d })).free();
 
     (try a._andnot(b)).free();
     a._andnotInPlace(b);
