@@ -205,7 +205,7 @@ pub const Bitmap = extern struct {
         info.Pointer.child = switch (info.Pointer.child) {
             c.roaring_bitmap_t => Bitmap,
             Bitmap => c.roaring_bitmap_t,
-            else => unreachable, // don't call this with anything else
+            else => @compileError("unexpected type " ++ @typeName(T)), // don't call this with anything else
         };
         return @Type(info); // turn the modified TypeInfo into a type
     }
