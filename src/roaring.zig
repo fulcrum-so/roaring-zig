@@ -307,11 +307,8 @@ pub const Bitmap = extern struct {
         return checkNewBitmap(c.roaring_bitmap_copy(conv(self)));
     }
 
-    pub fn toBitset(self: *const Bitmap) RoaringError!*Bitset {
-        var dest = try Bitset.create();
-        errdefer dest.free();
+    pub fn copyToBitset(self: *const Bitmap, dest: *Bitset) RoaringError!void {
         if (!c.roaring_bitmap_to_bitset(conv(self), conv(dest))) {
-            dest.free();
             return RoaringError.allocation_failed;
         }
         return dest;
@@ -944,11 +941,11 @@ export fn roaringAlignedMalloc(ptr_align: usize, size: usize) ?*anyopaque {
     return null;
 }
 
-pub const roaring_free_allocator = std.mem.Allocator{
+pub const free_only_allocator = std.mem.Allocator{
     .ptr = undefined,
-    .vtable = &roaring_allocator_vtable,
+    .vtable = &free_only_allocator_vtable,
 };
-const roaring_allocator_vtable = std.mem.Allocator.VTable{
+const free_only_allocator_vtable = std.mem.Allocator.VTable{
     .alloc = FreeOnlyRoaringAllocator.alloc,
     .resize = FreeOnlyRoaringAllocator.resize,
     .free = FreeOnlyRoaringAllocator.free,
@@ -990,5 +987,52 @@ const FreeOnlyRoaringAllocator = struct {
         _ = log2_old_align;
         _ = ret_addr;
         c.roaring_free(buf.ptr);
+    }
+};
+
+pub const aligned_allocator = std.mem.Allocator{
+    .ptr = undefined,
+    .vtable = &aligned_allocator_vtable,
+};
+const aligned_allocator_vtable = std.mem.Allocator.VTable{
+    .alloc = AlignedRoaringAllocator.alloc,
+    .resize = AlignedRoaringAllocator.resize,
+    .free = AlignedRoaringAllocator.free,
+};
+
+const AlignedRoaringAllocator = struct {
+    fn alloc(
+        _: *anyopaque,
+        len: usize,
+        log2_ptr_align: u8,
+        ret_addr: usize,
+    ) ?[*]u8 {
+        _ = ret_addr;
+        return c.roaring_aligned_malloc(log2_ptr_align, len);
+    }
+
+    fn resize(
+        _: *anyopaque,
+        buf: []u8,
+        log2_old_align: u8,
+        new_len: usize,
+        ret_addr: usize,
+    ) bool {
+        _ = buf;
+        _ = new_len;
+        _ = log2_old_align;
+        _ = ret_addr;
+        return false;
+    }
+
+    fn free(
+        _: *anyopaque,
+        buf: []u8,
+        log2_old_align: u8,
+        ret_addr: usize,
+    ) void {
+        _ = log2_old_align;
+        _ = ret_addr;
+        c.roaring_aligned_free(buf.ptr);
     }
 };
