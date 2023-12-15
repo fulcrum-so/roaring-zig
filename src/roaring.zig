@@ -328,7 +328,7 @@ pub const Bitmap = extern struct {
     }
 
     /// Adds all elements of `vals` to the bitmap.
-    pub fn addMany(self: *Bitmap, vals: []u32) void {
+    pub fn addMany(self: *Bitmap, vals: []const u32) void {
         c.roaring_bitmap_add_many(conv(self), vals.len, vals.ptr);
     }
 
