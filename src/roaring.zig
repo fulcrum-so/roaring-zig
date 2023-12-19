@@ -21,6 +21,8 @@ pub const RoaringError = error{
     ///
     frozen_view_failed,
     ///
+    serialize_failed,
+    ///
     deserialize_failed,
 };
 
@@ -558,9 +560,21 @@ pub const Bitmap = extern struct {
     }
 
     //============================ Serialization ============================//
-    ///
-    pub fn serialize(self: *const Bitmap, buf: []u8) usize {
-        return c.roaring_bitmap_serialize(conv(self), buf.ptr);
+    /// Serialize the bitmap to the provided byte buffer.
+    /// The buffer must be at least `sizeInBytes()` bytes long.
+    pub fn serialize(self: *const Bitmap, buf: []u8) !usize {
+        if (buf.len < self.sizeInBytes()) {
+            return RoaringError.serialize_failed;
+        }
+
+        const bytesWritten = c.roaring_bitmap_serialize(conv(self), buf.ptr);
+        if (bytesWritten > buf.len) {
+            std.debug.panic(
+                "roaring bitmap serialization wrote more bytes ({}) than allocated ({})",
+                .{ bytesWritten, buf.len },
+            );
+        }
+        return bytesWritten;
     }
 
     /// Uses `roaring_bitmap_deserialize_safe` under the hood
@@ -569,7 +583,7 @@ pub const Bitmap = extern struct {
     }
     pub const deserializeSafe = deserialize;
 
-    ///
+    /// Determines the size of the buffer needed to serialize the bitmap.
     pub fn sizeInBytes(self: *const Bitmap) usize {
         return c.roaring_bitmap_size_in_bytes(conv(self));
     }
@@ -581,16 +595,28 @@ pub const Bitmap = extern struct {
     ///
     /// This is meant to be compatible with the Java and Go versions:
     /// https://github.com/RoaringBitmap/RoaringFormatSpec
-    pub fn portableSerialize(self: *const Bitmap, buf: []u8) usize {
-        return c.roaring_bitmap_portable_serialize(conv(self), buf.ptr);
+    pub fn portableSerialize(self: *const Bitmap, buf: []u8) !usize {
+        const portableSize = self.portableSizeInBytes();
+        if (buf.len < portableSize) {
+            return RoaringError.serialize_failed;
+        }
+
+        const bytesWritten = c.roaring_bitmap_portable_serialize(conv(self), buf.ptr);
+        if (!bytesWritten == portableSize) {
+            std.debug.panic(
+                "roaring bitmap portable serialization wrote {} bytes, expected {}",
+                .{ bytesWritten, portableSize },
+            );
+        }
+        return bytesWritten;
     }
 
-    ///
+    /// Read bitmap from a serialized buffer. Actually just an alias for `portableDeserializeSafe`.
     pub fn portableDeserialize(buf: []const u8) RoaringError!*Bitmap {
-        return checkNewBitmap(c.roaring_bitmap_portable_deserialize(buf.ptr));
+        return portableDeserializeSafe(buf);
     }
 
-    ///
+    /// Read bitmap from a serialized buffer, ensuring that we don't read past the end of the buffer.
     pub fn portableDeserializeSafe(buf: []const u8) RoaringError!*Bitmap {
         if (c.roaring_bitmap_portable_deserialize_safe(buf.ptr, buf.len)) |b| {
             return conv(b);
