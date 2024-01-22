@@ -192,6 +192,10 @@ pub const Bitset = extern struct {
     pub fn maximum(self: *const Bitset) usize {
         return c.bitset_maximum(conv(self));
     }
+
+    pub fn iterate(self: *const Bitset, iter: c.bitset_iterator, arg: ?*anyopaque) bool {
+        return c.bitset_for_each(conv(self), iter, arg);
+    }
 };
 
 /// This struct reimplements CRoaring's roaring_bitmap_t type
