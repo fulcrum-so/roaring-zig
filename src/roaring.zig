@@ -158,7 +158,7 @@ pub const Bitset = extern struct {
 
     /// Grow the bitset if necessary so that it can support at least `newCapacity` elements.
     pub fn ensureCapacity(self: *Bitset, minBits: usize) RoaringError!void {
-        const minArraySize = try std.math.divCeil(usize, minBits, 64);
+        const minArraySize = std.math.divCeil(usize, minBits, 64) catch unreachable;
         if (minArraySize <= self.arraysize) {
             return;
         }
